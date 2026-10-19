@@ -1104,3 +1104,18 @@ ul {
     }
 
 }
+
+/* Keep the case frame visible while passing mouse input to the Fabric canvas. */
+#customize .phone-case {
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+#customize .card .canvas-container {
+    position: absolute !important;
+    top: 0;
+    left: 0;
+    z-index: 1;
+    touch-action: none;
+}
+#customize .card canvas { touch-action: none; }

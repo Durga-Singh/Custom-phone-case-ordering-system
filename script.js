@@ -83,33 +83,9 @@ if (customizeUploadImage) {
     }
 }
 
-// Phone case customization with Fabric.js
-window.onload = function () {
-    const canvas = new fabric.Canvas('canvas', {
-        width: 200,
-        height: 400,
-        selection: true,
-        backgroundColor: 'transparent',
-        transparentCorners: false,
-    });
-
-    var uploadedImageData = localStorage.getItem('uploadedImage');
-    if (uploadedImageData) {
-        fabric.Image.fromURL(uploadedImageData, function (img) {
-            img.scaleToWidth(canvas.width);
-            img.scaleToHeight(canvas.height);
-            img.set({
-                left: 0,
-                top: 0,
-                selectable: false,
-                evented: false,
-            });
-            canvas.add(img);
-            canvas.sendToBack(img);
-            canvas.renderAll();
-        });
-    }
-};
+// Customize controls only run on the customization page.
+(function initializeCaseControls() {
+    if (!document.getElementById('canvas') || !document.getElementById('card')) return;
 
 const modelSelect = document.getElementById('model');
 const phoneCaseImage = document.getElementById('phoneCaseImage');
@@ -227,88 +203,102 @@ function updateOrderTotal() {
 }
 
 
-window.onload = function () {
+// Initialize Fabric once. The frame is decorative and must not catch mouse input.
+function initializeCanvas() {
+    const card = document.getElementById('card');
     const canvas = new fabric.Canvas('canvas', {
-        width: 200,
-        height: 400,
-        selection: true,
+        width: card.clientWidth,
+        height: card.clientHeight,
+        selection: false,
         backgroundColor: 'transparent',
         transparentCorners: false,
+        defaultCursor: 'grab',
+        hoverCursor: 'grab',
+        moveCursor: 'grabbing',
     });
+    let uploadedImage = null;
+    let minimumScale = 1;
 
-    let uploadedImage = null; // Store the uploaded image object
+    function keepImageInCase() {
+        if (!uploadedImage) return;
+        uploadedImage.set({
+            left: Math.min(0, Math.max(canvas.width - uploadedImage.getScaledWidth(), uploadedImage.left)),
+            top: Math.min(0, Math.max(canvas.height - uploadedImage.getScaledHeight(), uploadedImage.top)),
+        });
+        uploadedImage.setCoords();
+    }
 
-    // Load uploaded image into Fabric.js
-    var uploadedImageData = localStorage.getItem('uploadedImage');
+    function zoomImage(nextScale, point) {
+        if (!uploadedImage) return;
+        point = point || { x: canvas.width / 2, y: canvas.height / 2 };
+        const scale = Math.max(minimumScale, Math.min(minimumScale * 5, nextScale));
+        const ratio = scale / uploadedImage.scaleX;
+        uploadedImage.set({
+            left: point.x - (point.x - uploadedImage.left) * ratio,
+            top: point.y - (point.y - uploadedImage.top) * ratio,
+            scaleX: scale,
+            scaleY: scale,
+        });
+        keepImageInCase();
+        canvas.requestRenderAll();
+    }
+
+    const uploadedImageData = localStorage.getItem('uploadedImage');
     if (uploadedImageData) {
-        fabric.Image.fromURL(uploadedImageData, function (img) {
-            img.scaleToWidth(canvas.width * 0.8); // Scale down to fit
-            img.scaleToHeight(canvas.height * 0.8);
+        fabric.Image.fromURL(uploadedImageData, function (img, error) {
+            if (error || !img || !img.width || !img.height) return;
+            minimumScale = Math.max(canvas.width / img.width, canvas.height / img.height);
+            img.scale(minimumScale);
             img.set({
-                left: (canvas.width - img.width) / 2,
-                top: (canvas.height - img.height) / 2,
+                left: (canvas.width - img.getScaledWidth()) / 2,
+                top: (canvas.height - img.getScaledHeight()) / 2,
                 selectable: true,
                 evented: true,
+                hasControls: false,
+                hasBorders: false,
+                lockRotation: true,
+                hoverCursor: 'grab',
+                moveCursor: 'grabbing',
             });
-
+            uploadedImage = img;
             canvas.add(img);
-            canvas.setActiveObject(img); // Set image as active for immediate interaction
-            canvas.renderAll();
-            uploadedImage = img; // Store reference to modify later
+            canvas.setActiveObject(img);
+            canvas.requestRenderAll();
         });
     }
 
-    // Scaling Buttons
+    // Fabric handles dragging, including dragging outside the canvas until release.
+    canvas.on('object:moving', keepImageInCase);
+    canvas.on('mouse:wheel', function (event) {
+        if (!uploadedImage) return;
+        event.e.preventDefault();
+        event.e.stopPropagation();
+        const units = event.e.deltaMode === 1 ? 16 : event.e.deltaMode === 2 ? canvas.height : 1;
+        zoomImage(uploadedImage.scaleX * Math.exp(-event.e.deltaY * units * 0.001), canvas.getPointer(event.e));
+    });
+    canvas.upperCanvasEl.addEventListener('wheel', function (event) {
+        if (uploadedImage) event.preventDefault();
+    }, { passive: false });
+
+    // Retain the existing buttons as optional controls.
     document.getElementById('increaseSize').addEventListener('click', () => {
-        if (uploadedImage) {
-            uploadedImage.scale(uploadedImage.scaleX * 1.1); // Increase by 10%
-            canvas.renderAll();
-        }
+        if (uploadedImage) zoomImage(uploadedImage.scaleX * 1.1);
     });
-
     document.getElementById('decreaseSize').addEventListener('click', () => {
-        if (uploadedImage) {
-            uploadedImage.scale(uploadedImage.scaleX * 0.9); // Decrease by 10%
-            canvas.renderAll();
-        }
+        if (uploadedImage) zoomImage(uploadedImage.scaleX / 1.1);
     });
-
-    // Movement Controls
-    const moveStep = 10; // Pixels to move per click
-
-    document.getElementById('moveUp').addEventListener('click', () => {
-        if (uploadedImage) {
-            uploadedImage.set('top', uploadedImage.top - moveStep);
-            canvas.renderAll();
-        }
+    const moveStep = 10;
+    [['moveUp', 0, -moveStep], ['moveDown', 0, moveStep],
+     ['moveLeft', -moveStep, 0], ['moveRight', moveStep, 0]].forEach(([id, x, y]) => {
+        document.getElementById(id).addEventListener('click', () => {
+            if (!uploadedImage) return;
+            uploadedImage.set({ left: uploadedImage.left + x, top: uploadedImage.top + y });
+            keepImageInCase();
+            canvas.requestRenderAll();
+        });
     });
+}
 
-    document.getElementById('moveDown').addEventListener('click', () => {
-        if (uploadedImage) {
-            uploadedImage.set('top', uploadedImage.top + moveStep);
-            canvas.renderAll();
-        }
-    });
-
-    document.getElementById('moveLeft').addEventListener('click', () => {
-        if (uploadedImage) {
-            uploadedImage.set('left', uploadedImage.left - moveStep);
-            canvas.renderAll();
-        }
-    });
-
-    document.getElementById('moveRight').addEventListener('click', () => {
-        if (uploadedImage) {
-            uploadedImage.set('left', uploadedImage.left + moveStep);
-            canvas.renderAll();
-        }
-    });
-
-    // Ensure canvas interaction is enabled
-    canvas.on('object:moving', function (e) {
-        const obj = e.target;
-        if (obj) {
-            obj.setCoords(); // Ensure movement updates properly
-        }
-    });
-};
+if (document.readyState === 'complete') initializeCanvas();
+else window.addEventListener('load', initializeCanvas, { once: true });
+})();
